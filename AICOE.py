@@ -1,6 +1,10 @@
 import json
 import os
 
+import chromadb
+from chromadb.config import Settings
+
+
 from langchain_chroma import Chroma
 from langchain_openai import AzureOpenAIEmbeddings
 
@@ -12,26 +16,62 @@ from EYQ_chat import generateChatResponse
 # ===========================================================
 PERSIST_DIR = r"./vectordb"
 
+CHROMA_TENANT = os.getenv("CHROMA_TENANT") or "default_tenant"
+CHROMA_DATABASE = os.getenv("CHROMA_DATABASE") or "default_database"
+
+
 
 # TOP_K = 10
 
 def load_retriever(collection_name, subdir, TOP_K):
-    """Loads a retriever for a given Chroma collection (domain or requirements)."""
+    """Loads a retriever for a given Chroma collection (domain or requirements), safely."""
     persist_path = os.path.join(PERSIST_DIR, subdir)
 
+    # --- Embeddings (keep yours; this preserves your current behavior) ---
     embeddings = AzureOpenAIEmbeddings(
-        azure_deployment="text-embedding-3-large",
-        # os.getenv("AZURE_EMBEDDING_DEPLOYMENT_NAME"),  # your embedding deployment name
-        azure_endpoint="https://eyq-incubator.america.fabric.ey.com/eyq/us/api",  # os.getenv("AZURE_OPENAI_ENDPOINT"),
-        api_key=os.getenv("OPENAI_KEY"),
-        api_version="2025-04-01-preview",
-        model="text-embedding-3-large"
+        azure_deployment=os.getenv("AZURE_EMBEDDING_DEPLOYMENT") or "text-embedding-3-large",
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") or "https://eyq-incubator.america.fabric.ey.com/eyq/us/api",
+        api_key=os.getenv("OPENAI_KEY") or os.getenv("AZURE_OPENAI_API_KEY"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION") or "2025-04-01-preview",
+        model=os.getenv("AZURE_EMBEDDING_MODEL") or "text-embedding-3-large",
     )
 
+    # --- Create a persistent Chroma client explicitly (prevents tenant errors) ---
+    client = chromadb.PersistentClient(
+        path=persist_path,
+        settings=Settings(anonymized_telemetry=False),
+        tenant=CHROMA_TENANT,
+        database=CHROMA_DATABASE,
+    )
+
+    # --- Auto-create tenant/database if your Chroma version supports it ---
+    # (Older versions won't have these methods; this remains safe)
+    if hasattr(client, "create_tenant"):
+        try:
+            client.create_tenant(CHROMA_TENANT)
+        except Exception:
+            pass  # tenant already exists or not supported by backend
+
+    if hasattr(client, "create_database"):
+        try:
+            client.create_database(CHROMA_DATABASE, tenant=CHROMA_TENANT)
+        except Exception:
+            pass  # database already exists or not supported
+
+    # --- Ensure collection exists (important after DB resets) ---
+    # This call creates the collection if missing.
+    try:
+        client.get_or_create_collection(name=collection_name)
+    except Exception:
+        # If the collection create call fails for any reason,
+        # LangChain will attempt to access it; but this reduces failures significantly.
+        pass
+
+    # --- Use LangChain Chroma wrapper with the explicit client ---
     vectordb = Chroma(
+        client=client,
         collection_name=collection_name,
-        persist_directory=persist_path,
-        embedding_function=embeddings
+        embedding_function=embeddings,
     )
 
     return vectordb.as_retriever(search_kwargs={"k": TOP_K})

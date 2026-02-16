@@ -73,7 +73,7 @@ def ingestion_tab():
 
                     if req_paths:
                         st.info(f"Ingesting {len(req_paths)} requirement documents...")
-                        ingest_requirement_docs_to_chroma(req_paths)
+                        ingest_requirement_docs_to_chroma(req_folder)
 
                 if not domain_paths and not req_paths:
                     st.warning("⚠️ No files were uploaded. Nothing to ingest.")
@@ -81,7 +81,11 @@ def ingestion_tab():
                     st.success("✅ Ingestion completed successfully!")
 
             except Exception as e:
+                import traceback
                 st.error(f"❌ Ingestion failed: {e}")
+                st.code(traceback.format_exc())
+
+
 # ============================================================
 # TEST CASE GENERATION TAB
 # ============================================================

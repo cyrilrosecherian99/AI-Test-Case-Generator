@@ -58,6 +58,6 @@ def generateEmbedding(text):
     # The embedding is a list of floats
     return response.data[0].embedding
 
-# if __name__ == "__main__":
-#     print(generateChatResponse("What is the purpose of teaching ?"))
-#     print(generateEmbedding("What is the size of moon ?"))
+#if __name__ == "__main__":
+  #print(generateChatResponse("What is the purpose of teaching ?"))
+  #print(generateEmbedding("What is the size of moon ?"))

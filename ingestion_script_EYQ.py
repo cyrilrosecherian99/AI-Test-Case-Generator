@@ -1,12 +1,15 @@
 import os
 import shutil
 import hashlib
+
+import chromadb
 from dotenv import load_dotenv
 
 
 from langchain_community.document_loaders import PyPDFLoader, UnstructuredWordDocumentLoader
 from langchain_chroma import Chroma
 from langchain_openai import AzureOpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
@@ -63,7 +66,7 @@ def add_to_chroma(docs, collection_name, persist_dir):
     embeddings = AzureOpenAIEmbeddings(
         azure_deployment="text-embedding-3-large", #os.getenv("AZURE_EMBEDDING_DEPLOYMENT_NAME"),  # your embedding deployment name
         azure_endpoint="https://eyq-incubator.america.fabric.ey.com/eyq/us/api", #os.getenv("AZURE_OPENAI_ENDPOINT"),
-        api_key="ssE3Nq8H8WsJY9ibYNNHXEaI3AFbJl1E",
+        api_key=os.getenv("OPENAI_KEY"),
         api_version="2025-04-01-preview",
         model="text-embedding-3-large"
     )
@@ -111,6 +114,9 @@ def ingest_requirement_docs_to_chroma(requirement_files):
 
     docs = prepare_docs(requirement_files)
     add_to_chroma(docs, collection_name, persist_dir)
+
+
+
 
 
 # ---------- Main ----------
