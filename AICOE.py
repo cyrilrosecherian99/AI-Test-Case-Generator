@@ -99,7 +99,7 @@ def createPrompt():
     # --- Step 1: Fetch and summarize domain knowledge ---
     print("Fetching domain knowledge...")
     domain_knowledge_base = fetch_domain_context(
-        "Create and Bind a New Personal Auto Policy"
+        "Verifying details of the price comparison website (PCW)"
     )
     domain_context = "\n\n".join([doc.page_content for doc in domain_knowledge_base])
 
@@ -111,62 +111,78 @@ def createPrompt():
 
     # --- Step 2: Fetch requirements ---
     print("Fetching requirements...")
-    req_doc = fetch_requirement_context("Create and Bind a New Personal Auto Policy")
+    req_doc = fetch_requirement_context("Verifying details of the price comparison website (PCW)")
     req_doc_final = "\n\n".join([doc.page_content for doc in req_doc])
 
     # --- Step 3: Define base input test data ---
     user_story = {
         "id": "US-201",
-        "title": "Home quotation for new business SOR journey should work the same as V8 post the version 10 upgrade",
+        "title": "Display PCW Name and Logo (Desktop, Mobile and Tablet)",
         "description": (
-            "Given PC is upgraded to v10"
-"and user is completing a quotation journey for Home Policy"
-"When user navigates to Ancillary Coverages screen (this comes as next step after Buildings and Contents)"
-"Then the screen should have the same content and behaviour as per v8"
+            "Given the customer was referred from a Price Comparison website (PCW)"
+"When they land on the CQW page"
+"Then the name and logo of the PCW they have deeplinked from should be displayed beneath the policy cover benefits "
+        )
+    }, {
+        "id": "US-202",
+        "title": "Display selected Ancillaries and Optional Extras (Desktop, Mobile and Tablet)",
+        "description": (
+            "Given the customer selected optional extras (ancillaries) on the PCW"
+            "When they land on the CQW page"
+            "Then the pre-selected ancillaries should be listed clearly underneath the name and logo of the PCW as shown in the design provided by the product team "
+        )
+
+    },{
+        "id": "US-203",
+        "title": "Display Icons with Optional extras -Ancillary (Desktop, Mobile and Tablet)",
+        "description": (
+            "Given the customer selected optional extras (ancillaries) on the PCW"
+            "When they land on the CQW page"
+            "Then corresponding icons should be displayed next to each pre-selected ancillary. "
         )
     }
 
     existing_test_cases = [
-        {
-            "id": "TC-201",
-            "requirement_id": "REQ-201",
-            "description": (
-                "Verify that a new Personal Auto policy can be created with valid applicant and vehicle details, "
-                "and bound successfully."
-            )
-        },
-        {
-            "id": "TC-202",
-            "requirement_id": "REQ-202",
-            "description": (
-                "Verify that mandatory fields such as Applicant Name, Address, and Effective Date are validated "
-                "during policy creation."
-            )
-        }
+        # {
+        #     "id": "TC-201",
+        #     "requirement_id": "REQ-201",
+        #     "description": (
+        #         "Verify that a new Personal Auto policy can be created with valid applicant and vehicle details, "
+        #         "and bound successfully."
+        #     )
+        # },
+        # {
+        #     "id": "TC-202",
+        #     "requirement_id": "REQ-202",
+        #     "description": (
+        #         "Verify that mandatory fields such as Applicant Name, Address, and Effective Date are validated "
+        #         "during policy creation."
+        #     )
+        # }
     ]
 
     bugs = [
-        {
-            "id": "BUG-201",
-            "test_case_id": "TC-201",
-            "title": "Policy Binding Error",
-            "description": (
-                "Policy binding fails with 'Null pointer exception' when applicant address is missing "
-                "even though the field is marked optional."
-            ),
-            "severity": "High",
-            "status": "Open"
-        },
-        {
-            "id": "BUG-202",
-            "test_case_id": "TC-202",
-            "title": "Coverage Premium Calculation Mismatch",
-            "description": (
-                "Premium is not recalculated after changing coverage limit values during quote revision."
-            ),
-            "severity": "Medium",
-            "status": "In Progress"
-        }
+        # {
+        #     "id": "BUG-201",
+        #     "test_case_id": "TC-201",
+        #     "title": "Policy Binding Error",
+        #     "description": (
+        #         "Policy binding fails with 'Null pointer exception' when applicant address is missing "
+        #         "even though the field is marked optional."
+        #     ),
+        #     "severity": "High",
+        #     "status": "Open"
+        # },
+        # {
+        #     "id": "BUG-202",
+        #     "test_case_id": "TC-202",
+        #     "title": "Coverage Premium Calculation Mismatch",
+        #     "description": (
+        #         "Premium is not recalculated after changing coverage limit values during quote revision."
+        #     ),
+        #     "severity": "Medium",
+        #     "status": "In Progress"
+        # }
     ]
 
     # --- Step 4: Serialize to JSON strings ---

@@ -67,18 +67,20 @@ def ingestion_tab():
                             req_paths.append(file_path)
 
                     # ---- Call ingestion functions only if files exist ----
+
                     if domain_paths:
                         st.info(f"Ingesting {len(domain_paths)} domain documents...")
                         ingest_domain_knowledge_to_chroma(domain_folder)
 
                     if req_paths:
                         st.info(f"Ingesting {len(req_paths)} requirement documents...")
-                        ingest_requirement_docs_to_chroma(req_folder)
+                        ingest_requirement_docs_to_chroma(req_paths)
 
-                if not domain_paths and not req_paths:
-                    st.warning("⚠️ No files were uploaded. Nothing to ingest.")
-                else:
-                    st.success("✅ Ingestion completed successfully!")
+                    if not domain_paths and not req_paths:
+                        st.warning("⚠️ No files were uploaded. Nothing to ingest.")
+                    else:
+                        st.success("✅ Ingestion completed successfully!")
+
 
             except Exception as e:
                 import traceback

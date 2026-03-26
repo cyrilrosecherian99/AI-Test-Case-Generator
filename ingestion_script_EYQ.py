@@ -10,6 +10,7 @@ from langchain_community.document_loaders import PyPDFLoader, UnstructuredWordDo
 from langchain_chroma import Chroma
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from chromadb.config import Settings
 
 load_dotenv()
 
@@ -71,9 +72,16 @@ def add_to_chroma(docs, collection_name, persist_dir):
         model="text-embedding-3-large"
     )
 
+    client = chromadb.PersistentClient(
+        path=persist_dir,
+        settings=Settings(anonymized_telemetry=False),
+        tenant=os.getenv("CHROMA_TENANT") or "default_tenant",
+        database=os.getenv("CHROMA_DATABASE") or "default_database",
+    )
+
     vectordb = Chroma(
+        client=client,
         collection_name=collection_name,
-        persist_directory=persist_dir,
         embedding_function=embeddings
     )
 
