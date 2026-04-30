@@ -1,16 +1,18 @@
 import copy
 import os
 import tempfile
-
+import openpyxl
 import streamlit as st
 import pandas as pd
 import json
 from EYQ_chat import generateChatResponse
 from AICOE import createPrompt
+
 from ingestion_script_EYQ import ingest_domain_knowledge_to_chroma, ingest_requirement_docs_to_chroma
 
 
-# ============================================================
+
+# ===========================================================
 # INGESTION TAB
 # ============================================================
 
@@ -67,7 +69,6 @@ def ingestion_tab():
                             req_paths.append(file_path)
 
                     # ---- Call ingestion functions only if files exist ----
-
                     if domain_paths:
                         st.info(f"Ingesting {len(domain_paths)} domain documents...")
                         ingest_domain_knowledge_to_chroma(domain_folder)
@@ -76,11 +77,10 @@ def ingestion_tab():
                         st.info(f"Ingesting {len(req_paths)} requirement documents...")
                         ingest_requirement_docs_to_chroma(req_paths)
 
-                    if not domain_paths and not req_paths:
-                        st.warning("⚠️ No files were uploaded. Nothing to ingest.")
-                    else:
-                        st.success("✅ Ingestion completed successfully!")
-
+                if not domain_paths and not req_paths:
+                    st.warning("⚠️ No files were uploaded. Nothing to ingest.")
+                else:
+                    st.success("✅ Ingestion completed successfully!")
 
             except Exception as e:
                 import traceback
@@ -115,78 +115,96 @@ def test_case_generation_tab():
     st.header("🧪 AI Test Case Generation")
 
     st.write("""
-    Click below to generate new test cases using the domain and requirement knowledge base.
+    Upload an Excel file containing test case generation inputs.
+    The file should have columns: center, domain_context_query, requirement_context_query, user_story_json, existing_test_cases_json, bugs_json.
     """)
 
-    if st.button("Generate Test Cases"):
-        with st.spinner("Generating test cases with LLM... Please wait ⏳"):
-            try:
-                # 1️⃣ Call your existing logic
-                response_raw = generateChatResponse(createPrompt())
+    uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-                # 2️⃣ Clean up any markdown fences (```json)
-                response_clean = response_raw.strip()
-                if response_clean.startswith("```"):
-                    response_clean = response_clean.strip("```json").strip("```").strip()
+    if uploaded_file is not None:
+        try:
+            df = pd.read_excel(uploaded_file)
+            st.write("Excel file loaded successfully.")
+            st.write(f"Columns found: {df.columns.tolist()}")
 
-                # 3️⃣ Try parsing JSON
-                try:
-                    test_cases = json.loads(response_clean)
-                except Exception as e:
-                    st.error(f"❌ JSON parsing failed: {e}")
-                    st.text_area("Raw LLM Output", response_raw, height=400)
-                    return
+            if 'center' not in df.columns:
+                st.error("The Excel file must contain a 'center' column.")
+                return
 
-                # 4️⃣ Validate structure
-                if not isinstance(test_cases, list):
-                    st.warning("⚠️ Output is not a list of test cases. Showing raw content:")
-                    st.json(test_cases)
-                    return
+            centers = df['center'].dropna().unique().tolist()
+            if not centers:
+                st.error("No centers found in the 'center' column.")
+                return
 
-                # Keep original JSON for download (unaltered)
-                original_json = copy.deepcopy(test_cases)
+            selected_center = st.selectbox("Select Center to generate test cases for", options=centers)
 
-                # Create a copy for display/CSV where only test_steps are formatted
-                display_cases = copy.deepcopy(test_cases)
-                for tc in display_cases:
-                    # Normalize and format test_steps into numbered multiline string
-                    tc_steps = tc.get("test_steps", None)
-                    tc["test_steps"] = _format_steps_for_display(tc_steps)
+            num_test_cases = st.number_input(
+                "Number of test cases to generate",
+                min_value=1,
+                max_value=50,
+                value=10,
+                step=1
+            )
 
-                for tc in display_cases:
-                    # Normalize and format test_steps into numbered multiline string
-                    tc_steps_summary = tc.get("test_steps_summary", None)
-                    tc["test_steps_summary"] = _format_steps_for_display(tc_steps_summary)
+            if st.button("Generate Test Cases"):
+                with st.spinner("Generating test cases with LLM... Please wait ⏳"):
+                    try:
+                        filtered_df = df[df['center'] == selected_center]
 
-                # Create DataFrame for tabular display
-                df = pd.DataFrame(display_cases)
+                        for idx, row in filtered_df.iterrows():
+                            prompt = createPrompt(
+                                center=row['center'],
+                                domain_context_query=row['domain_context_query'],
+                                requirement_context_query=row['requirement_context_query'],
+                                user_story_json=row['user_story_json'],
+                                existing_test_cases_json=row['existing_test_cases_json'],
+                                bugs_json=row['bugs_json'],
+                                num_test_cases=num_test_cases
+                            )
 
-                st.success("✅ Test cases generated successfully!")
+                            response_raw = generateChatResponse(prompt)
 
-                # Display the DataFrame (tabular). test_steps will show numbered multiline text in each cell.
-                st.dataframe(df, use_container_width=True, height=400)
+                            response_clean = response_raw.strip()
+                            if response_clean.startswith("```"):
+                                response_clean = response_clean.strip("```json").strip("```").strip()
 
-                # Download buttons
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.download_button(
-                        label="⬇️ Download JSON (original)",
-                        data=json.dumps(original_json, indent=2),
-                        file_name="generated_test_cases.json",
-                        mime="application/json"
-                    )
-                with col2:
-                    # CSV from the display dataframe will contain the numbered multiline steps
-                    csv_bytes = df.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="⬇️ Download CSV (table view)",
-                        data=csv_bytes,
-                        file_name="generated_test_cases.csv",
-                        mime="text/csv"
-                    )
+                            test_cases = json.loads(response_clean)
 
-            except Exception as e:
-                st.error(f"🔥 Error during generation: {e}")
+                            display_cases = copy.deepcopy(test_cases)
+                            for tc in display_cases:
+                                tc["test_steps"] = _format_steps_for_display(tc.get("test_steps"))
+                                tc["test_steps_summary"] = _format_steps_for_display(tc.get("test_steps_summary"))
+
+                            df_display = pd.DataFrame(display_cases)
+
+                            st.success(f"✅ Test cases generated successfully for center: {selected_center}!")
+
+                            st.dataframe(df_display, use_container_width=True, height=400)
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.download_button(
+                                    label="⬇️ Download JSON (original)",
+                                    data=json.dumps(test_cases, indent=2),
+                                    file_name=f"generated_test_cases_{selected_center}.json",
+                                    mime="application/json"
+                                )
+                            with col2:
+                                csv_bytes = df_display.to_csv(index=False).encode("utf-8")
+                                st.download_button(
+                                    label="⬇️ Download CSV (table view)",
+                                    data=csv_bytes,
+                                    file_name=f"generated_test_cases_{selected_center}.csv",
+                                    mime="text/csv"
+                                )
+
+                    except Exception as e:
+                        st.error(f"🔥 Error during generation: {e}")
+
+        except Exception as e:
+            st.error(f"❌ Failed to read Excel file: {e}")
+    else:
+        st.info("Please upload an Excel file to proceed.")
 
 
 # ============================================================
@@ -196,7 +214,6 @@ def test_case_generation_tab():
 def main():
     st.set_page_config(page_title="EYQ AI Test Case Generator", layout="wide")
     st.title("EYQ AI – End-to-End Test Case Automation")
-
     tab1, tab2 = st.tabs(["📂 Ingestion", "🧪 Test Case Generation"])
 
     with tab1:
