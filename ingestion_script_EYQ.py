@@ -3,6 +3,7 @@ import shutil
 import hashlib
 
 import chromadb
+from chromadb.config import Settings
 from dotenv import load_dotenv
 
 
@@ -10,7 +11,6 @@ from langchain_community.document_loaders import PyPDFLoader, UnstructuredWordDo
 from langchain_chroma import Chroma
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from chromadb.config import Settings
 
 load_dotenv()
 
@@ -36,6 +36,13 @@ def get_all_files_from_folder(folder_path: str):
 
 def prepare_docs(file_paths):
     """Load and split PDFs or Word documents into chunks."""
+    # Normalize input: accept a folder path, a single file path, or a list of file paths
+    if isinstance(file_paths, str):
+        if os.path.isdir(file_paths):
+            file_paths = get_all_files_from_folder(file_paths)
+        else:
+            file_paths = [file_paths]
+
     all_docs = []
     for file in file_paths:
         print(f"Loading: {file}")
@@ -72,17 +79,44 @@ def add_to_chroma(docs, collection_name, persist_dir):
         model="text-embedding-3-large"
     )
 
-    client = chromadb.PersistentClient(
-        path=persist_dir,
-        settings=Settings(anonymized_telemetry=False),
-        tenant=os.getenv("CHROMA_TENANT") or "default_tenant",
-        database=os.getenv("CHROMA_DATABASE") or "default_database",
-    )
+    # --- Create or reuse a persistent Chroma client to avoid inconsistent settings errors ---
+    CHROMA_TENANT = os.getenv("CHROMA_TENANT") or "default_tenant"
+    CHROMA_DATABASE = os.getenv("CHROMA_DATABASE") or "default_database"
+
+    # Try to create a PersistentClient with tenant/database. If a client for this path
+    # already exists with other settings, fall back to a simpler client creation to
+    # allow operations to continue in the same process.
+    try:
+        client = chromadb.PersistentClient(
+            path=persist_dir,
+            settings=Settings(anonymized_telemetry=False),
+            tenant=CHROMA_TENANT,
+            database=CHROMA_DATABASE,
+        )
+    except Exception as e:
+        # Handle the specific case where a Chroma instance already exists for this path
+        err_msg = str(e)
+        print(f"Warning creating PersistentClient with tenant/database: {err_msg}")
+        print("Falling back to PersistentClient without tenant/database (to reuse existing instance if possible).")
+        try:
+            client = chromadb.PersistentClient(
+                path=persist_dir,
+                settings=Settings(anonymized_telemetry=False),
+            )
+        except Exception as e2:
+            # If fallback also fails, surface the original error for troubleshooting
+            raise RuntimeError(f"Failed to create or reuse a Chroma client for '{persist_dir}': {e2}")
+
+    # Ensure collection exists and use the explicit client in LangChain's Chroma wrapper
+    try:
+        client.get_or_create_collection(name=collection_name)
+    except Exception:
+        pass
 
     vectordb = Chroma(
         client=client,
         collection_name=collection_name,
-        embedding_function=embeddings
+        embedding_function=embeddings,
     )
 
     MAX_BATCH = 5000
@@ -94,6 +128,21 @@ def add_to_chroma(docs, collection_name, persist_dir):
     print(f"✅ Successfully ingested {len(docs)} docs into '{collection_name}' at {persist_dir}")
 
 
+def _safe_remove_dir(path):
+    """Try to remove a directory. If files are locked on Windows, raise a helpful error."""
+    if not os.path.exists(path):
+        return
+    try:
+        shutil.rmtree(path)
+    except Exception as e:
+        # Provide a clearer message for locked files on Windows (WinError 32)
+        raise RuntimeError(
+            f"Failed to remove existing persist directory '{path}'. It may be in use by another process (e.g. a running app). "
+            "Please close any processes that may be using the DB (look for 'chroma.sqlite3') and try again. Original error: "
+            + str(e)
+        )
+
+
 # ---------- Ingestion Functions ----------
 def ingest_domain_knowledge_to_chroma(domain_folder):
     """Store domain-related documents."""
@@ -102,7 +151,7 @@ def ingest_domain_knowledge_to_chroma(domain_folder):
 
     if os.path.exists(persist_dir):
         print(f"Removing old domain knowledge DB at {persist_dir}")
-        shutil.rmtree(persist_dir)
+        _safe_remove_dir(persist_dir)
     os.makedirs(persist_dir, exist_ok=True)
 
     domain_files = get_all_files_from_folder(domain_folder)
@@ -117,10 +166,14 @@ def ingest_requirement_docs_to_chroma(requirement_files):
 
     if os.path.exists(persist_dir):
         print(f"Removing old requirement DB at {persist_dir}")
-        shutil.rmtree(persist_dir)
+        _safe_remove_dir(persist_dir)
     os.makedirs(persist_dir, exist_ok=True)
 
-    docs = prepare_docs(requirement_files)
+    # Prepare docs; wrap to provide clearer errors per file
+    try:
+        docs = prepare_docs(requirement_files)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Document loading failed: {e}")
     add_to_chroma(docs, collection_name, persist_dir)
 
 
