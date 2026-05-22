@@ -73,100 +73,135 @@ def fetch_context(collection_name, subdir, top_k, query):
         subdir=subdir,
         top_k=top_k
     )
-    return retriever.invoke(query)
+    # Use invoke if available, else fallback to get_relevant_documents
+    if hasattr(retriever, "invoke"):
+        return retriever.invoke(query)
+    elif hasattr(retriever, "get_relevant_documents"):
+        return retriever.get_relevant_documents(query)
+    else:
+        raise AttributeError("Retriever has no method 'invoke' or 'get_relevant_documents'")
+
+    def fetch_context(collection_name, subdir, top_k, query):
+        retriever = load_retriever(
+            collection_name=collection_name,
+            subdir=subdir,
+            top_k=top_k
+        )
+        # Use invoke if available, else fallback to get_relevant_documents
+        if hasattr(retriever, "invoke"):
+            return retriever.invoke(query)
+        elif hasattr(retriever, "get_relevant_documents"):
+            return retriever.get_relevant_documents(query)
+        else:
+            raise AttributeError("Retriever has no method 'invoke' or 'get_relevant_documents'")
 
 
-def createPrompt(center, domain_context_query, requirement_context_query, user_story_json,
-                 existing_test_cases_json, bugs_json, num_test_cases=10):
-    print(f"Fetching {center} domain knowledge...")
+def  createPrompt(center):
+    center_key = center.lower().replace(" ", "_")  # e.g. claim_center
+
+    # Fetch domain knowledge docs from vector DB
     domain_docs = fetch_context(
-        collection_name=f"{center.lower()}_domain_contexts",
-        subdir=f"{center.lower()}_domain_knowledge",
+        collection_name=f"{center_key}_domain_contexts",
+        subdir=f"{center_key}_domain_knowledge",
         top_k=10,
-        query=domain_context_query
+        query=""  # empty or a general query to get top domain docs
     )
+
     domain_context = "\n\n".join(doc.page_content for doc in domain_docs)
 
-    domain_context_summary = generateChatResponse(
-        f"""
-        You are a {center} SME.
-        Summarize all key lifecycle steps and business rules relevant to the domain.
-        Output plain text only.
-
-        Data:
-        {domain_context}
-        """
-    )
-
-    print(f"Fetching {center} requirements...")
+    # Fetch requirement docs from vector DB
     req_docs = fetch_context(
-        collection_name=f"{center.lower()}_requirement_contexts",
-        subdir=f"{center.lower()}_requirements",
-        top_k=5,
-        query=requirement_context_query
+        collection_name=f"{center_key}_requirement_contexts",
+        subdir=f"{center_key}_requirements",
+        top_k=10,
+        query=""  # empty or a general query to get top requirement docs
     )
-    req_doc_final = "\n\n".join(doc.page_content for doc in req_docs)
 
-    user_story = json.loads(user_story_json)
-    existing_test_cases = json.loads(existing_test_cases_json)
-    bugs = json.loads(bugs_json)
+    requirement_context = "\n\n".join(doc.page_content for doc in req_docs)
 
+    # You can load existing test cases and bugs JSON if available, else empty lists
+    existing_test_cases = []
+    bugs = []
+
+    # Compose prompt
     prompt = f"""
     You are an expert Domain SME and Test Case Generator specializing in {center}.
 
-    Identify at least {num_test_cases} missing or uncovered test cases related to key workflows.
+    Use the following domain knowledge and requirements to identify missing or uncovered test cases related to key workflows, ensuring maximum coverage.
 
-    Each test case must include:
-    - test_case_id
-    - requirement_id
-    - title (end-to-end workflow oriented)
-    - objective
-    - preconditions
-    - detailed test_steps with clear, step-by-step instructions (avoid generic steps)
-    - test_steps_summary
-    - expected_results
-    - actual_results ("To be tested")
-    - test_type
+    Domain Knowledge:
+    {domain_context}
+
+    Requirements:
+    {requirement_context}
+
+    Existing Test Cases:
+    {json.dumps(existing_test_cases)}
+
+    Known Bugs:
+    {json.dumps(bugs)}
 
     Rules:
     1. Do NOT repeat existing test cases or known bugs.
     2. Derive logical steps from domain knowledge when needed.
-    3. Include negative, boundary, integration, and financial scenarios.
+    3. Include positive, negative, boundary, integration, edge, and financial scenarios.
     4. Follow real-world insurance standards.
-    5. Output VALID JSON ONLY.
-
-    Input:
-    {{
-        "domain_knowledge": {json.dumps(domain_context_summary)},
-        "user_story": {json.dumps(user_story)},
-        "use_case_requirements": {json.dumps(req_doc_final)},
-        "existing_test_cases": {json.dumps(existing_test_cases)},
-        "bugs": {json.dumps(bugs)}
-    }}
+    5. Output VALID JSON ONLY with fields: test_case_id, requirement_id, title, objective, preconditions, detailed test_steps, test_steps_summary, expected_results, actual_results, test_type.
     """
 
-    return prompt
+    # Call LLM
+    response_raw = generateChatResponse(prompt)
+
+    # Process response as before...
+    # Return or display generated test cases
 
 
-def generate_prompts_from_excel(file_path, num_test_cases=10):
+def generate_prompts_from_excel(file_path):
+    """
+    Generate prompts from the original Excel format with columns:
+    center, domain_context_query, requirement_context_query, user_story_json, existing_test_cases_json, bugs_json
+    """
     df = pd.read_excel(file_path)
     prompts = {}
     for idx, row in df.iterrows():
-        center = row['center']
+        center = row.get('center', 'default').strip()
         prompt = createPrompt(
             center=center,
-            domain_context_query=row['domain_context_query'],
-            requirement_context_query=row['requirement_context_query'],
-            user_story_json=row['user_story_json'],
-            existing_test_cases_json=row['existing_test_cases_json'],
-            bugs_json=row['bugs_json'],
-            num_test_cases = num_test_cases
+            domain_context_query=row.get('domain_context_query', ''),
+            requirement_context_query=row.get('requirement_context_query', ''),
+            user_story_json=row.get('user_story_json', '{}'),
+            existing_test_cases_json=row.get('existing_test_cases_json', '[]'),
+            bugs_json=row.get('bugs_json', '[]')
         )
-        prompts[center] = prompt
+        if center not in prompts:
+            prompts[center] = []
+        prompts[center].append(prompt)
     return prompts
 
 
-# Example usage:
-# prompts = generate_prompts_from_excel("center_prompts.xlsx")
-# for center, prompt in prompts.items():
-#     print(f"Prompt for {center}:\n{prompt}\n\n")
+def create_prompt_from_guidewire_bdd_row(row):
+    """
+    Create a prompt for test case generation based on a single Guidewire BDD test case row.
+    """
+    prompt = f"""
+You are an expert Guidewire SME and Test Case Generator specializing in {row.get('Feature', 'General')}.
+
+Given the following test case details, identify missing or uncovered test cases related to key workflows, ensuring maximum coverage.
+
+Test Case ID: {row.get('Test Case ID', '')}
+Test Case Name: {row.get('Test Case Name', '')}
+Scenario: {row.get('Scenario', '')}
+Type: {row.get('Type', '')}
+Priority: {row.get('Priority', '')}
+Preconditions: {row.get('Preconditions', '')}
+Test Data: {row.get('Test Data', '')}
+Expected Result: {row.get('Expected Result', '')}
+
+Rules:
+1. Do NOT repeat existing test cases.
+2. Derive logical steps from domain knowledge when needed.
+3. Include positive, negative, boundary, integration, edge, and financial scenarios.
+4. Follow real-world insurance standards.
+5. Output VALID JSON ONLY with fields: test_case_id, title, objective, preconditions, detailed test_steps, test_steps_summary, expected_results, actual_results, test_type.
+"""
+    return prompt
