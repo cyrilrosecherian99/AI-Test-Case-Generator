@@ -158,23 +158,25 @@ def ingest_domain_knowledge_to_chroma(domain_folder):
     docs = prepare_docs(domain_files)
     add_to_chroma(docs, collection_name, persist_dir)
 
-
 def ingest_requirement_docs_to_chroma(requirement_files):
-    """Store requirement-specific documents."""
+    """Store requirement-specific documents (safe, no DB deletion)."""
+
     persist_dir = os.path.join(BASE_PERSIST_DIR, "requirement_docs")
     collection_name = "requirement_contexts"
 
-    if os.path.exists(persist_dir):
-        print(f"Removing old requirement DB at {persist_dir}")
-        _safe_remove_dir(persist_dir)
+    # ✅ Do NOT delete existing DB
     os.makedirs(persist_dir, exist_ok=True)
 
-    # Prepare docs; wrap to provide clearer errors per file
+    # Prepare docs
     try:
         docs = prepare_docs(requirement_files)
     except FileNotFoundError as e:
         raise FileNotFoundError(f"Document loading failed: {e}")
+
+    # ✅ Add to existing DB (no lock issue)
     add_to_chroma(docs, collection_name, persist_dir)
+
+    print(f"✅ Ingestion completed successfully into {persist_dir}")
 
 
 
